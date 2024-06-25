@@ -31,7 +31,8 @@ class ColorScheme(Enum):
 def create_origami_plot(data_series: List[pd.Series], variable_configs: List[VariableConfig], 
                         color_scheme: ColorScheme = ColorScheme.DEFAULT, 
                         title: str = "", figsize: Optional[Tuple[int, int]] = None,
-                        ax: Optional[plt.Axes] = None) -> Tuple[Optional[plt.Figure], plt.Axes]:
+                        ax: Optional[plt.Axes] = None,
+                        weights: Optional[np.ndarray] = None) -> Tuple[Optional[plt.Figure], plt.Axes]:
     if ax is None:
         fig, ax = plt.subplots(figsize=figsize or DEFAULT_FIGURE_SIZE)
     else:
@@ -45,20 +46,13 @@ def create_origami_plot(data_series: List[pd.Series], variable_configs: List[Var
 
     n_variables = len(variable_configs)
     theta = np.linspace(0, 2 * np.pi, n_variables, endpoint=False)
-    auxiliary_theta = theta + (np.pi / n_variables)
 
     x_coordinates = np.cos(theta)
     y_coordinates = np.sin(theta)
-    x_auxiliary_coordinates = np.cos(auxiliary_theta)
-    y_auxiliary_coordinates = np.sin(auxiliary_theta)
 
     # Draw main axes
     for x, y in zip(x_coordinates, y_coordinates):
         ax.plot([0, x], [0, y], color='gray', alpha=0.3, linewidth=1, linestyle='-')
-
-    # Draw auxiliary axes
-    for x, y in zip(x_auxiliary_coordinates, y_auxiliary_coordinates):
-        ax.plot([0, x], [0, y], color='gray', alpha=0.3, linewidth=1, linestyle='--')
 
     # Draw grid
     for i in range(1, DEFAULT_GRID_LINES + 1):
@@ -72,7 +66,8 @@ def create_origami_plot(data_series: List[pd.Series], variable_configs: List[Var
     # Plot data for each series
     for i, (data, color) in enumerate(zip(data_series, colors)):
         opacity = 1 if i == 0 else 0.5  # Full opacity for real patient, half for generated
-        plot_data_series(ax, data, variable_configs, color, opacity, x_coordinates, y_coordinates, x_auxiliary_coordinates, y_auxiliary_coordinates)
+        plot_data_series(ax, data, variable_configs, color, opacity, 
+                         x_coordinates, y_coordinates, weights)
 
     # Add labels
     for config, x, y in zip(variable_configs, x_coordinates * 1.2, y_coordinates * 1.2):
@@ -87,38 +82,46 @@ def create_origami_plot(data_series: List[pd.Series], variable_configs: List[Var
         plt.tight_layout()
     return fig, ax
 
-def plot_data_series(ax: plt.Axes, data: pd.Series, variable_configs: List[VariableConfig], 
-                     color: Tuple[float, float, float, float], opacity: float,
-                     x_coordinates: np.ndarray, y_coordinates: np.ndarray,
-                     x_auxiliary_coordinates: np.ndarray, y_auxiliary_coordinates: np.ndarray):
-    n_variables = len(variable_configs)
 
+def plot_data_series(ax, data, variable_configs, color, opacity, x_coordinates, y_coordinates, weights=None):
+    n_variables = len(variable_configs)
+    if weights is None:
+        weights = np.ones(n_variables)
+    
     max_values = np.array([config.max_value for config in variable_configs])
     min_values = np.array([config.min_value for config in variable_configs])
     data_values = np.array([data[config.name] for config in variable_configs])
     
-    scaled_values = (data_values - min_values) / (max_values - min_values)
+    seg = 4  # Default number of segments
+    CGap = 1  # Assuming not center-zero
+    scale = CGap/(seg+CGap) + (data_values - min_values) / (max_values - min_values) * seg/(seg+CGap)
     
-    main_x = x_coordinates * scaled_values
-    main_y = y_coordinates * scaled_values
+    main_x = x_coordinates * scale
+    main_y = y_coordinates * scale
     
-    auxiliary_offset = 0.05  # Small offset for auxiliary points
-    aux_x = x_auxiliary_coordinates * auxiliary_offset
-    aux_y = y_auxiliary_coordinates * auxiliary_offset
+    # Calculate auxiliary points
+    aux_theta = np.linspace(0, 2 * np.pi, n_variables, endpoint=False) + (np.pi / n_variables)
+    aux_x = np.cos(aux_theta) * 0.1  # Fixed small radius for auxiliary points
+    aux_y = np.sin(aux_theta) * 0.1
 
-    # Draw lines connecting main points to auxiliary points
+    # Draw lines from main points to adjacent auxiliary points
     for i in range(n_variables):
         ax.plot([main_x[i], aux_x[i]], [main_y[i], aux_y[i]], 
-                color=color, alpha=opacity, linewidth=2)
+                color=color, alpha=opacity, linewidth=2*weights[i])
+        ax.plot([main_x[i], aux_x[i-1]], [main_y[i], aux_y[i-1]], 
+                color=color, alpha=opacity, linewidth=2*weights[i])
 
-    # Draw lines connecting auxiliary points to next main points
+    # Draw lines from auxiliary points to next main points
     for i in range(n_variables):
         next_i = (i + 1) % n_variables
         ax.plot([aux_x[i], main_x[next_i]], [aux_y[i], main_y[next_i]], 
-                color=color, alpha=opacity, linewidth=2)
+                color=color, alpha=opacity, linewidth=2*weights[next_i])
 
     # Plot main points
     ax.scatter(main_x, main_y, color=color, alpha=opacity, s=30)
+    
+    # Plot auxiliary points
+    ax.scatter(aux_x, aux_y, color=color, alpha=opacity * 0.5, s=15)
 
 def create_multiple_origami_plots(df: pd.DataFrame, variable_configs: List[VariableConfig], 
                                   id_column: str = 'Patient ID', color_scheme: ColorScheme = ColorScheme.DEFAULT, 
