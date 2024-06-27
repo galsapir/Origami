@@ -1,43 +1,21 @@
-"""
-Origami Plot Library
-
-This module provides functions to create origami plots for visualizing multi-dimensional data.
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 from dataclasses import dataclass
-from enum import Enum
-from typing import List, Tuple, Optional
-
-# Constants
-DEFAULT_GRID_LINES = 4
-DEFAULT_FIGURE_SIZE = (10, 10)
+from typing import List, Tuple
+import pandas as pd
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.patches as patches
 
 @dataclass
 class VariableConfig:
-    """Configuration for each variable in the origami plot."""
     name: str
     min_value: float
     max_value: float
 
-class ColorScheme(Enum):
-    """Color schemes for the origami plot."""
-    DEFAULT = ((0.2, 0.5, 0.5, 1), (0.2, 0.5, 0.5, 0.1))
-    COLORBLIND_FRIENDLY = ((0.0, 0.4470, 0.7410, 1), (0.0, 0.4470, 0.7410, 0.1))
-
-
-def create_origami_plot(data_series: List[pd.Series], variable_configs: List[VariableConfig], 
-                        color_scheme: ColorScheme = ColorScheme.DEFAULT, 
-                        title: str = "", figsize: Optional[Tuple[int, int]] = None,
-                        ax: Optional[plt.Axes] = None,
-                        weights: Optional[np.ndarray] = None) -> Tuple[Optional[plt.Figure], plt.Axes]:
-    if ax is None:
-        fig, ax = plt.subplots(figsize=figsize or DEFAULT_FIGURE_SIZE)
-    else:
-        fig = None
-
+def create_origami_plot(df: pd.DataFrame, variable_configs: List[VariableConfig], 
+                        title: str = "", figsize: Tuple[int, int] = (10, 10),
+                        show_legend: bool = True) -> None:
+    fig, ax = plt.subplots(figsize=figsize)
     ax.set_xlim(-1.2, 1.2)
     ax.set_ylim(-1.2, 1.2)
     ax.set_aspect('equal')
@@ -46,7 +24,7 @@ def create_origami_plot(data_series: List[pd.Series], variable_configs: List[Var
 
     n_variables = len(variable_configs)
     theta = np.linspace(0, 2 * np.pi, n_variables, endpoint=False)
-
+    
     x_coordinates = np.cos(theta)
     y_coordinates = np.sin(theta)
 
@@ -55,67 +33,72 @@ def create_origami_plot(data_series: List[pd.Series], variable_configs: List[Var
         ax.plot([0, x], [0, y], color='gray', alpha=0.3, linewidth=1, linestyle='-')
 
     # Draw grid
-    for i in range(1, DEFAULT_GRID_LINES + 1):
-        circle = plt.Circle((0, 0), i / DEFAULT_GRID_LINES, fill=False, linestyle=':', linewidth=0.5, color='black')
+    for i in range(1, 5):
+        circle = plt.Circle((0, 0), i / 4, fill=False, linestyle=':', linewidth=0.5, color='black')
         ax.add_artist(circle)
-        ax.text(-0.05, i / DEFAULT_GRID_LINES, f'{i / DEFAULT_GRID_LINES:.2f}', ha='right', va='center', color='gray')
+        ax.text(-0.05, i / 4, f'{i / 4:.2f}', ha='right', va='center', color='gray')
 
-    # Generate a color palette
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(data_series)))
+    # Generate colors for each data series
+    colors = generate_colors(len(df))
 
-    # Plot data for each series
-    for i, (data, color) in enumerate(zip(data_series, colors)):
-        opacity = 1 if i == 0 else 0.5  # Full opacity for real patient, half for generated
-        plot_data_series(ax, data, variable_configs, color, opacity, 
-                         x_coordinates, y_coordinates, weights)
+    # Plot each data series
+    for i, row in df.iterrows():
+        opacity = 1 if i == 0 else 0.5  # Full opacity for first series, half for others
+        plot_data_series(ax, row, variable_configs, colors[i], opacity, x_coordinates, y_coordinates)
 
     # Add labels
     for config, x, y in zip(variable_configs, x_coordinates * 1.2, y_coordinates * 1.2):
         ax.text(x, y, config.name, ha='center', va='center', fontsize=8)
 
-    # Add legend
-    legend_elements = [plt.Line2D([0], [0], color=colors[0], lw=2, label='Real Patient'),
-                       plt.Line2D([0], [0], color=colors[1], lw=2, alpha=0.5, label='Generated Data')]
-    ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.3, 1))
+    # Add legend if show_legend is True
+    if show_legend:
+        legend_elements = [
+            plt.Line2D([0], [0], color=colors[0], lw=2, label=f'Patient {df.iloc[0, 0]} (outline)')
+        ]
+        if len(df) > 1:
+            legend_elements.extend([
+                plt.Line2D([0], [0], color=colors[1], lw=2, alpha=0.5, label=f'Patient {df.iloc[1, 0]} (outline)')
+            ])
+        ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.3, 1))
 
-    if fig:
-        plt.tight_layout()
-    return fig, ax
+    plt.tight_layout()
+    plt.show()
 
-
-def plot_data_series(ax, data, variable_configs, color, opacity, x_coordinates, y_coordinates, weights=None):
+def plot_data_series(ax, data, variable_configs, color, opacity, x_coordinates, y_coordinates):
     n_variables = len(variable_configs)
-    if weights is None:
-        weights = np.ones(n_variables)
     
     max_values = np.array([config.max_value for config in variable_configs])
     min_values = np.array([config.min_value for config in variable_configs])
     data_values = np.array([data[config.name] for config in variable_configs])
     
-    seg = 4  # Default number of segments
-    CGap = 1  # Assuming not center-zero
-    scale = CGap/(seg+CGap) + (data_values - min_values) / (max_values - min_values) * seg/(seg+CGap)
+    scale = (data_values - min_values) / (max_values - min_values)
     
     main_x = x_coordinates * scale
     main_y = y_coordinates * scale
     
     # Calculate auxiliary points
     aux_theta = np.linspace(0, 2 * np.pi, n_variables, endpoint=False) + (np.pi / n_variables)
-    aux_x = np.cos(aux_theta) * 0.1  # Fixed small radius for auxiliary points
+    aux_x = np.cos(aux_theta) * 0.1
     aux_y = np.sin(aux_theta) * 0.1
 
-    # Draw lines from main points to adjacent auxiliary points
+    # Create a list of points for the polygon
+    polygon_points = []
     for i in range(n_variables):
-        ax.plot([main_x[i], aux_x[i]], [main_y[i], aux_y[i]], 
-                color=color, alpha=opacity, linewidth=2*weights[i])
-        ax.plot([main_x[i], aux_x[i-1]], [main_y[i], aux_y[i-1]], 
-                color=color, alpha=opacity, linewidth=2*weights[i])
+        polygon_points.append((main_x[i], main_y[i]))
+        polygon_points.append((aux_x[i], aux_y[i]))
+    
+    # Create and add the polygon patch
+    polygon = patches.Polygon(polygon_points, closed=True, fill=True, 
+                              facecolor=color, edgecolor=color, 
+                              alpha=opacity * 0.2)  # Adjust alpha for fill opacity
+    ax.add_patch(polygon)
 
-    # Draw lines from auxiliary points to next main points
+    # Draw lines and points
     for i in range(n_variables):
         next_i = (i + 1) % n_variables
-        ax.plot([aux_x[i], main_x[next_i]], [aux_y[i], main_y[next_i]], 
-                color=color, alpha=opacity, linewidth=2*weights[next_i])
+        ax.plot([main_x[i], aux_x[i], main_x[next_i]], 
+                [main_y[i], aux_y[i], main_y[next_i]], 
+                color=color, alpha=opacity, linewidth=2)
 
     # Plot main points
     ax.scatter(main_x, main_y, color=color, alpha=opacity, s=30)
@@ -123,49 +106,7 @@ def plot_data_series(ax, data, variable_configs, color, opacity, x_coordinates, 
     # Plot auxiliary points
     ax.scatter(aux_x, aux_y, color=color, alpha=opacity * 0.5, s=15)
 
-def create_multiple_origami_plots(df: pd.DataFrame, variable_configs: List[VariableConfig], 
-                                  id_column: str = 'Patient ID', color_scheme: ColorScheme = ColorScheme.DEFAULT, 
-                                  figsize: Tuple[int, int] = DEFAULT_FIGURE_SIZE,
-                                  subplot_layout: Optional[Tuple[int, int]] = None) -> List[Tuple[Optional[plt.Figure], plt.Axes]]:
-    plots = []
-    unique_prefixes = df[id_column].str.replace(r'_[123]$', '', regex=True).unique()
-
-    if subplot_layout:
-        fig, axs = plt.subplots(*subplot_layout, figsize=(figsize[0]*subplot_layout[1], figsize[1]*subplot_layout[0]))
-        axs = axs.flatten()
-    else:
-        fig, axs = None, [None] * len(unique_prefixes)
-
-    for i, prefix in enumerate(unique_prefixes):
-        patient_data = df[df[id_column].str.startswith(prefix)]
-        data_series = [patient_data.iloc[j].drop(id_column) for j in range(len(patient_data))]
-        
-        fig_i, ax = create_origami_plot(
-            data_series, 
-            variable_configs, 
-            color_scheme, 
-            title=f"{id_column}: {prefix}",
-            figsize=None if subplot_layout else figsize,
-            ax=axs[i]
-        )
-        plots.append((fig_i, ax))
-
-    if subplot_layout:
-        plt.tight_layout()
-        return [(fig, ax) for ax in axs]
-    else:
-        return plots
-
-def create_mosaic_origami_plots(df: pd.DataFrame, variable_configs: List[VariableConfig], 
-                                id_column: str = 'Patient ID', color_scheme: ColorScheme = ColorScheme.DEFAULT, 
-                                mosaic_layout: Tuple[int, int] = (3, 3), 
-                                figsize: Tuple[int, int] = (15, 15)) -> plt.Figure:
-    fig = plt.figure(figsize=figsize)
-    plots = create_multiple_origami_plots(df, variable_configs, id_column, color_scheme, subplot_layout=mosaic_layout)
-    
-    for (_, ax) in plots:
-        if ax.get_title() == '':
-            ax.remove()
-    
-    plt.tight_layout()
-    return fig
+def generate_colors(n):
+    # Create a custom colormap
+    cmap = LinearSegmentedColormap.from_list("custom", ["#4B0082", "#9400D3", "#00CED1", "#20B2AA"])
+    return [cmap(i) for i in np.linspace(0, 1, n)]
