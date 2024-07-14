@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.patches as patches
@@ -14,7 +14,7 @@ class VariableConfig:
 
 def create_radar_plot(df: pd.DataFrame, variable_configs: List[VariableConfig], 
                       title: str = "", figsize: Tuple[int, int] = (10, 10),
-                      show_legend: bool = True) -> None:
+                      show_legend: bool = True, show_title: bool = True) -> None:
     fig, ax = plt.subplots(figsize=figsize, subplot_kw=dict(projection='polar'))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
@@ -22,15 +22,14 @@ def create_radar_plot(df: pd.DataFrame, variable_configs: List[VariableConfig],
     n_variables = len(variable_configs)
     theta = np.linspace(0, 2 * np.pi, n_variables, endpoint=False)
 
-    # Keep the original order of labels to match the origami plot
     labels = [config.name for config in variable_configs]
 
     # Add the variable names as labels
     ax.set_xticks(theta)
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels(labels, fontsize=12)
 
     # Move labels outward
-    ax.tick_params(pad=15)
+    ax.tick_params(pad=18)
 
     # Generate colors for each data series
     colors = generate_colors(len(df))
@@ -45,10 +44,15 @@ def create_radar_plot(df: pd.DataFrame, variable_configs: List[VariableConfig],
         
         values = np.array(values)
         values = np.concatenate((values, [values[0]]))  # repeat first value to close the polygon
+
+        if i == 0:
+            label = 'Original Signal'
+        else:
+            label = f'Generated Signal {i}'
         
         ax.plot(np.concatenate((theta, [theta[0]])), values, color=colors[i], linewidth=2, 
-                label=f'Patient {row.iloc[0]}')
-        ax.fill(np.concatenate((theta, [theta[0]])), values, color=colors[i], alpha=0.1)
+                label=label)
+        ax.fill(np.concatenate((theta, [theta[0]])), values, color=colors[i], alpha=0.2)
         
         # Add points at the nodes
         ax.scatter(theta, values[:-1], color=colors[i], s=30, zorder=10)
@@ -58,19 +62,20 @@ def create_radar_plot(df: pd.DataFrame, variable_configs: List[VariableConfig],
     
     # Add concentric circles for the grid at 25% intervals
     ax.set_rgrids([0.25, 0.5, 0.75], angle=0, fontsize=8)
-    
-    # Remove the radial labels (0.25, 0.5, 0.75)
     ax.set_yticklabels([])
 
-    # Add custom radial labels
-    for i in range(1, 4):
-        ax.text(-0.05, i/4, f'{i/4:.2f}', ha='right', va='center', fontsize=8)
+    # Add title if show_title is True
+    if show_title:
+        ax.set_title(title, pad=20)
 
     # Add legend if show_legend is True
     if show_legend:
-        ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1))
-
-    ax.set_title(title, pad=20)
+        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.1), ncol=2)
+    
+    # Adjust the outermost ring to match inner rings
+    ax.spines['polar'].set_color('gray')  # Set color to match inner rings
+    ax.spines['polar'].set_linewidth(0.5)  # Set line width to match inner rings
+    ax.spines['polar'].set_alpha(0.2)  # Set transparency to match inner rings
     plt.tight_layout()
     plt.show()
 
