@@ -26,13 +26,13 @@ def create_radar_plot(df: pd.DataFrame, variable_configs: List[VariableConfig],
 
     # Add the variable names as labels
     ax.set_xticks(theta)
-    ax.set_xticklabels(labels, fontsize=12)
+    ax.set_xticklabels(labels, fontsize=24)
 
     # Move labels outward
     ax.tick_params(pad=18)
 
-    # Generate colors for each data series
-    colors = generate_colors(len(df))
+    # Generate colors for generated signals
+    generated_colors = generate_colors(len(df) - 1)  # Generate one less color
 
     # Plot each data series
     for i, row in df.iterrows():
@@ -47,21 +47,25 @@ def create_radar_plot(df: pd.DataFrame, variable_configs: List[VariableConfig],
 
         if i == 0:
             label = 'Original Signal'
+            color = 'black'
+            alpha = 0.1  # You might want to adjust this for visibility
         else:
             label = f'Generated Signal {i}'
-        
-        ax.plot(np.concatenate((theta, [theta[0]])), values, color=colors[i], linewidth=2, 
+            color = generated_colors[i-1]  # Use generated colors for other signals
+            alpha = 0.2
+
+        ax.plot(np.concatenate((theta, [theta[0]])), values, color=color, linewidth=2, 
                 label=label)
-        ax.fill(np.concatenate((theta, [theta[0]])), values, color=colors[i], alpha=0.2)
+        ax.fill(np.concatenate((theta, [theta[0]])), values, color=color, alpha=alpha)
         
         # Add points at the nodes
-        ax.scatter(theta, values[:-1], color=colors[i], s=30, zorder=10)
+        ax.scatter(theta, values[:-1], color=color, s=30, zorder=10)
 
     # Set the limits of the plot
     ax.set_ylim(0, 1)
     
     # Add concentric circles for the grid at 25% intervals
-    ax.set_rgrids([0.25, 0.5, 0.75], angle=0, fontsize=8)
+    ax.set_rgrids([0.25, 0.5, 0.75], angle=0, fontsize=20)
     ax.set_yticklabels([])
 
     # Add title if show_title is True
@@ -70,7 +74,7 @@ def create_radar_plot(df: pd.DataFrame, variable_configs: List[VariableConfig],
 
     # Add legend if show_legend is True
     if show_legend:
-        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.1), ncol=2)
+        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.1), ncol=2, fontsize=24)
     
     # Adjust the outermost ring to match inner rings
     ax.spines['polar'].set_color('gray')  # Set color to match inner rings
